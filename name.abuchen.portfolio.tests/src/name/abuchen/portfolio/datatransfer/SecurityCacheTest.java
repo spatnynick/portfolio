@@ -159,4 +159,77 @@ public class SecurityCacheTest
         assertThat(again, is(created));
         assertThat(cache.wasCreated(again), is(true));
     }
+
+    @Test
+    public void testThatDuplicateISINIsResolvedByCurrency()
+    {
+        var client = new Client();
+
+        var eur = new Security("Broadcom Inc.", CurrencyUnit.EUR);
+        eur.setIsin("US11135F1012");
+        client.addSecurity(eur);
+
+        var usd = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        usd.setIsin("US11135F1012");
+        client.addSecurity(usd);
+
+        var cache = new SecurityCache(client);
+
+        assertThat(cache.lookup("US11135F1012", null, null, null, CurrencyUnit.EUR, Security::new), is(eur));
+        assertThat(cache.lookup("US11135F1012", null, null, null, CurrencyUnit.USD, Security::new), is(usd));
+    }
+
+    @Test(expected = DuplicateSecurityException.class)
+    public void testThatDuplicateISINWithSameCurrencyIsNotMatched()
+    {
+        var client = new Client();
+
+        var first = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        first.setIsin("US11135F1012");
+        client.addSecurity(first);
+
+        var second = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        second.setIsin("US11135F1012");
+        client.addSecurity(second);
+
+        new SecurityCache(client).lookup("US11135F1012", null, null, null, CurrencyUnit.USD, Security::new);
+    }
+
+    @Test(expected = DuplicateSecurityException.class)
+    public void testThatDuplicateISINWithoutMatchingCurrencyIsNotMatched()
+    {
+        var client = new Client();
+
+        var eur = new Security("Broadcom Inc.", CurrencyUnit.EUR);
+        eur.setIsin("US11135F1012");
+        client.addSecurity(eur);
+
+        var usd = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        usd.setIsin("US11135F1012");
+        client.addSecurity(usd);
+
+        new SecurityCache(client).lookup("US11135F1012", null, null, null, "CHF", Security::new);
+    }
+
+    @Test
+    public void testThatRetiredSecurityIsIgnoredWhenResolvingByCurrency()
+    {
+        var client = new Client();
+
+        var eur = new Security("Broadcom Inc.", CurrencyUnit.EUR);
+        eur.setIsin("US11135F1012");
+        client.addSecurity(eur);
+
+        var usd = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        usd.setIsin("US11135F1012");
+        client.addSecurity(usd);
+
+        var usdRetired = new Security("Broadcom Inc.", CurrencyUnit.USD);
+        usdRetired.setIsin("US11135F1012");
+        usdRetired.setRetired(true);
+        client.addSecurity(usdRetired);
+
+        var cache = new SecurityCache(client);
+        assertThat(cache.lookup("US11135F1012", null, null, null, CurrencyUnit.USD, Security::new), is(usd));
+    }
 }

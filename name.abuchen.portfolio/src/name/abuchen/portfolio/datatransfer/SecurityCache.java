@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.BinaryOperator;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -26,6 +27,9 @@ public class SecurityCache
                     Messages.MsgErrorDuplicateTicker, Messages.MsgErrorDuplicateWKN, Messages.MsgErrorDuplicateName);
 
     private final Client client;
+
+    private static final List<Function<Security, String>> IDENTIFIERS = Arrays.asList(Security::getIsin,
+                    Security::getTickerSymbolWithoutStockMarket, Security::getWkn);
 
     private final List<Map<String, Security>> localMaps = new ArrayList<>();
     private final Set<Security> created = new HashSet<>();
@@ -66,6 +70,18 @@ public class SecurityCache
     public Security lookup(String isin, String tickerSymbol, String wkn, String name,
                     Supplier<Security> creationFunction)
     {
+        return lookup(isin, tickerSymbol, wkn, name, null, creationFunction);
+    }
+
+    /**
+     * Looks up the security by its identifying attributes. If an attribute
+     * matches multiple securities (for example the same ISIN listed on
+     * different exchanges), the currency code is used to pick the matching
+     * security.
+     */
+    public Security lookup(String isin, String tickerSymbol, String wkn, String name, String currencyCode,
+                    Supplier<Security> creationFunction)
+    {
         List<String> attributes = Arrays.asList(isin, prefix(tickerSymbol), wkn, name);
 
         int idOfAttributeWithDuplicateSecurities = -1;
@@ -81,6 +97,21 @@ public class SecurityCache
 
             if (idOfAttributeWithDuplicateSecurities < 0 && security == DUPLICATE_SECURITY_MARKER)
                 idOfAttributeWithDuplicateSecurities = ii;
+        }
+
+        // if we detect duplicate securities, try to resolve them by currency
+        if (idOfAttributeWithDuplicateSecurities >= 0 && currencyCode != null)
+        {
+            for (int ii = 0; ii < 3; ii++)
+            {
+                String attribute = attributes.get(ii);
+                if (localMaps.get(ii).get(attribute) != DUPLICATE_SECURITY_MARKER)
+                    continue;
+
+                Security security = lookupByCurrency(IDENTIFIERS.get(ii), attribute, currencyCode);
+                if (security != null)
+                    return security;
+            }
         }
 
         // if we detect duplicate securities for one attribute, the error
@@ -113,6 +144,27 @@ public class SecurityCache
         }
 
         return security;
+    }
+
+    /**
+     * Returns the security with the given attribute and currency if it is
+     * unique. Active securities take precedence over retired ones.
+     */
+    private Security lookupByCurrency(Function<Security, String> identifier, String attribute, String currencyCode)
+    {
+        Set<Security> all = new HashSet<>(client.getSecurities());
+        all.addAll(created);
+
+        var candidates = all.stream() //
+                        .filter(s -> attribute.equals(identifier.apply(s)))
+                        .filter(s -> currencyCode.equalsIgnoreCase(s.getCurrencyCode())) //
+                        .toList();
+
+        if (candidates.size() == 1)
+            return candidates.get(0);
+
+        var active = candidates.stream().filter(s -> !s.isRetired()).toList();
+        return active.size() == 1 ? active.get(0) : null;
     }
 
     private String prefix(String tickerSymbol)

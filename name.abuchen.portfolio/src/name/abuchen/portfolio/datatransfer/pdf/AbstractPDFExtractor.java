@@ -313,7 +313,10 @@ public abstract class AbstractPDFExtractor implements Extractor
         if (nameRowTwo != null)
             name = name + " " + trim(nameRowTwo); //$NON-NLS-1$
 
-        var security = securityCache.lookup(isin, tickerSymbol, wkn, name, factory);
+        var currency = values.get("currency"); //$NON-NLS-1$
+        var currencyCode = currency != null ? asCurrencyCode(currency) : null;
+
+        var security = securityCache.lookup(isin, tickerSymbol, wkn, name, currencyCode, factory);
 
         if (security == null)
             throw new IllegalArgumentException("Unable to construct security: " + values.toString()); //$NON-NLS-1$
